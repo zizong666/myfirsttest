@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>漢字保衛戰</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f4f8; 
+            font-family: 'Inter', 'Microsoft JhengHei', sans-serif;
+            touch-action: none; 
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100vh;
+            /* 將上傳的圖片設定為遊戲背景 */
+            background-image: url('p1.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+        #uiLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass through to canvas when playing */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .hud {
+            pointer-events: auto;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        .score-display {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            font-weight: bold;
+            font-size: 1.25rem;
+            color: #1e293b;
+        }
+        .lives-display {
+             display: flex;
+             gap: 0.25rem;
+        }
+        .heart {
+            color: #ef4444;
+            font-size: 1.5rem;
+        }
+        #screens {
+            pointer-events: auto;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(4px);
+            z-index: 10;
+            transition: opacity 0.3s;
+        }
+        .screen-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            max-width: 90%;
+            width: 400px;
+        }
+        .btn {
+            background-color: #3b82f6;
+            color: white;
+            padding: 0.75rem 2rem;
+            border-radius: 9999px;
+            font-weight: bold;
+            font-size: 1.25rem;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            margin-top: 1.5rem;
+            width: 100%;
+        }
+        .btn:hover {
+            background-color: #2563eb;
+            transform: translateY(-2px);
+        }
+        .btn:active {
+            transform: translateY(0);
+        }
+        .hidden {
+            display: none !important;
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="uiLayer">
+        <div class="hud hidden" id="hud">
+            <div class="score-display">關卡: <span id="levelValue">1</span> | 分數: <span id="scoreValue">0</span></div>
+            <div class="lives-display" id="livesContainer">
+                <span class="heart">❤️</span>
+                <span class="heart">❤️</span>
+                <span class="heart">❤️</span>
+                <span class="heart">❤️</span>
+                <span class="heart">❤️</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="screens">
+        <!-- Start Screen -->
+        <div id="startScreen" class="screen-content">
+            <h1 class="text-3xl font-extrabold text-gray-800 mb-2">漢字保衛戰</h1>
+            <p class="text-gray-600 mb-4">點擊掉落中<strong class="text-blue-600">正確</strong>的詞語！<br>選錯或漏接都會扣愛心哦。</p>
+            
+            <!-- 自訂詞庫區塊 -->
+            <div class="mb-4 text-left">
+                <button id="toggleDictBtn" class="text-sm text-blue-600 underline bg-transparent border-none cursor-pointer p-0 hover:text-blue-800">自訂詞庫 (點擊展開)</button>
+                <div id="customDictContainer" class="hidden mt-2">
+                    <p class="text-xs text-gray-500 mb-1">格式：正確詞,錯誤詞 (每行一組，使用半形逗號分隔)</p>
+                    <textarea id="customDictInput" class="w-full h-32 p-2 border rounded text-sm border-gray-300 focus:outline-none focus:border-blue-500 shadow-inner resize-none"></textarea>
+                </div>
+            </div>
+
+            <button class="btn" id="startBtn" style="margin-top: 0.5rem;">開始遊戲</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverScreen" class="screen-content hidden">
+            <h1 class="text-3xl font-extrabold text-red-600 mb-2">遊戲結束</h1>
+            <p class="text-gray-600 mb-2">你的最終分數是</p>
+            <p class="text-5xl font-bold text-gray-800 mb-6" id="finalScore">0</p>
+            <button class="btn" id="restartBtn">再玩一次</button>
+        </div>
+
+        <!-- Game Win Screen -->
+        <div id="gameWinScreen" class="screen-content hidden">
+            <h1 class="text-3xl font-extrabold text-green-500 mb-2">恭喜破關！</h1>
+            <p class="text-gray-600 mb-2">你成功通過了十個關卡，守護了漢字！</p>
+            <p class="text-gray-600 mb-2">最終分數</p>
+            <p class="text-5xl font-bold text-gray-800 mb-6" id="winScore">0</p>
+            <button class="btn" id="winRestartBtn">再玩一次</button>
+        </div>
+
+        <!-- Level Up Screen -->
+        <div id="levelUpScreen" class="screen-content hidden">
+            <h1 class="text-3xl font-extrabold text-blue-600 mb-2" id="nextLevelTitle">準備進入第 2 關</h1>
+            <p class="text-gray-600 mb-6">文字掉落速度將會加快，請準備好！</p>
+            <button class="btn" id="nextLevelBtn">確定</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('scoreValue');
+        const levelElement = document.getElementById('levelValue');
+        const livesContainer = document.getElementById('livesContainer');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const gameWinScreen = document.getElementById('gameWinScreen');
+        const levelUpScreen = document.getElementById('levelUpScreen');
+        const nextLevelTitle = document.getElementById('nextLevelTitle');
+        const screens = document.getElementById('screens');
+        const hud = document.getElementById('hud');
+        
+        let width, height;
+        let animationId;
+        let score = 0;
+        let lives = 5;
+        let level = 1;
+        let correctCountInLevel = 0;
+        const targetCorrectPerLevel = 10;
+        const maxLevel = 10;
+        let gameRunning = false;
+        
+        // Game entities
+        let wordPairsOnScreen = [];
+        let particles = [];
+        
+        // Difficulty parameters
+        let baseSpeed = 1.5;
+        let spawnRate = 2000; // ms
+        let lastSpawnTime = 0;
+        let speedMultiplier = 1;
+
+        // Dictionary of correct words and their common typos (5th & 6th grade level)
+        let wordDictionary = [];
+        const defaultDictionary = [
+            { correct: "摩擦", wrong: "磨擦" },
+            { correct: "既然", wrong: "即然" },
+            { correct: "報復", wrong: "報負" },
+            { correct: "負責", wrong: "付責" },
+            { correct: "鼓勵", wrong: "鼓厲" },
+            { correct: "嚴格", wrong: "嚴革" },
+            { correct: "甚至", wrong: "甚致" },
+            { correct: "雖然", wrong: "隨然" },
+            { correct: "繼續", wrong: "繼須" },
+            { correct: "繁榮", wrong: "煩榮" },
+            { correct: "謹慎", wrong: "謹順" },
+            { correct: "猶豫", wrong: "猶預" },
+            { correct: "沮喪", wrong: "阻喪" },
+            { correct: "輪廓", wrong: "輪括" },
+            { correct: "妨礙", wrong: "防礙" },
+            { correct: "驕傲", wrong: "嬌傲" },
+            { correct: "遺憾", wrong: "遺撼" },
+            { correct: "震撼", wrong: "震憾" },
+            { correct: "關鍵", wrong: "關建" },
+            { correct: "鬼祟", wrong: "鬼崇" },
+            { correct: "穿梭", wrong: "穿俊" },
+            { correct: "煩惱", wrong: "煩腦" },
+            { correct: "糟糕", wrong: "糟羔" },
+            { correct: "吩咐", wrong: "紛咐" },
+            { correct: "基礎", wrong: "基楚" },
+            { correct: "痕跡", wrong: "痕績" },
+            { correct: "破綻", wrong: "破錠" },
+            { correct: "興高采烈", wrong: "興高彩烈" },
+            { correct: "迫不及待", wrong: "迫不急待" },
+            { correct: "莫名其妙", wrong: "莫明其妙" }
+        ];
+
+        const customDictInput = document.getElementById('customDictInput');
+        const customDictContainer = document.getElementById('customDictContainer');
+        const toggleDictBtn = document.getElementById('toggleDictBtn');
+
+        // 初始化將預設詞庫載入到輸入框中
+        function initDictionaryUI() {
+            customDictInput.value = defaultDictionary.map(item => `${item.correct},${item.wrong}`).join('\n');
+        }
+        initDictionaryUI();
+
+        // 展開/收合自訂詞庫的按鈕事件
+        toggleDictBtn.addEventListener('click', () => {
+            customDictContainer.classList.toggle('hidden');
+            toggleDictBtn.innerText = customDictContainer.classList.contains('hidden') ? '自訂詞庫 (點擊展開)' : '自訂詞庫 (點擊收合)';
+        });
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        // Audio setup using Tone.js
+        let correctSynth, wrongSynth;
+        let audioInitialized = false;
+
+        async function initAudio() {
+            if (!audioInitialized) {
+                await Tone.start();
+                
+                // Correct sound: bright, happy chime
+                correctSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "triangle" },
+                    envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.5 }
+                }).toDestination();
+                correctSynth.volume.value = -8; // Reduce volume slightly
+
+                // Wrong sound: low, dull buzz
+                wrongSynth = new Tone.Synth({
+                    oscillator: { type: "sawtooth" },
+                    envelope: { attack: 0.05, decay: 0.2, sustain: 0.1, release: 0.5 }
+                }).toDestination();
+                wrongSynth.volume.value = -8;
+                
+                audioInitialized = true;
+            }
+        }
+
+        function playCorrectSound() {
+            if (correctSynth) correctSynth.triggerAttackRelease(["C5", "E5", "G5"], "8n");
+        }
+
+        function playWrongSound() {
+            if (wrongSynth) wrongSynth.triggerAttackRelease("G2", "8n");
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        document.getElementById('startBtn').addEventListener('click', startGame);
+        document.getElementById('restartBtn').addEventListener('click', startGame);
+        document.getElementById('winRestartBtn').addEventListener('click', startGame);
+        document.getElementById('nextLevelBtn').addEventListener('click', resumeNextLevel);
+
+        // Handle both mouse clicks and touch taps
+        canvas.addEventListener('mousedown', handleInteraction);
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent default touch behavior like scrolling
+            handleInteraction(e.touches[0]);
+        }, { passive: false });
+
+        function handleInteraction(e) {
+            if (!gameRunning) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            // Check collision backwards to click top-most items first
+            for (let i = wordPairsOnScreen.length - 1; i >= 0; i--) {
+                const pair = wordPairsOnScreen[i];
+                
+                // Check correct word
+                if (isHit(clickX, clickY, pair.correctItem)) {
+                    handleCorrectClick(pair, i);
+                    return; // Stop checking after a hit
+                }
+                
+                // Check wrong word
+                if (isHit(clickX, clickY, pair.wrongItem)) {
+                    handleWrongClick(pair, i);
+                    return; // Stop checking after a hit
+                }
+            }
+        }
+
+        function isHit(x, y, item) {
+            // Give a generous hitbox around the text
+            const padding = 20;
+            return x >= item.x - padding &&
+                   x <= item.x + item.width + padding &&
+                   y >= item.y - item.height && // Text y is bottom baseline usually, adjusted in draw
+                   y <= item.y + padding;
+        }
+
+        function handleCorrectClick(pair, index) {
+            score += 10;
+            scoreElement.innerText = score;
+            playCorrectSound();
+            createParticles(pair.correctItem.x + pair.correctItem.width/2, pair.correctItem.y, '#34d399', 'O'); // Green O
+            wordPairsOnScreen.splice(index, 1);
+            
+            // 處理關卡進度
+            correctCountInLevel++;
+            if (correctCountInLevel >= targetCorrectPerLevel) {
+                levelUp();
+            }
+        }
+
+        function levelUp() {
+            level++;
+            if (level > maxLevel) {
+                winGame();
+                return;
+            }
+            
+            correctCountInLevel = 0;
+            levelElement.innerText = level;
+            
+            // 速度每關增加 10%
+            speedMultiplier = Math.pow(1.1, level - 1);
+            // 生成間距相應縮短
+            spawnRate = Math.max(800, 2000 * Math.pow(0.9, level - 1));
+            
+            // 暫停遊戲並顯示過關視窗
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            
+            nextLevelTitle.innerText = `準備進入第 ${level} 關`;
+            screens.classList.remove('hidden');
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            gameWinScreen.classList.add('hidden');
+            levelUpScreen.classList.remove('hidden');
+        }
+
+        function resumeNextLevel() {
+            // 隱藏視窗
+            screens.classList.add('hidden');
+            levelUpScreen.classList.add('hidden');
+            
+            // 清空畫面上的字詞，讓新關卡有一個乾淨的開始
+            wordPairsOnScreen = [];
+            particles = [];
+            
+            // 恢復遊戲
+            gameRunning = true;
+            lastSpawnTime = performance.now();
+            
+            setTimeout(() => {
+                if(gameRunning) spawnWordPair();
+            }, 500);
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function winGame() {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            
+            document.getElementById('winScore').innerText = score;
+            hud.classList.add('hidden');
+            screens.classList.remove('hidden');
+            gameWinScreen.classList.remove('hidden');
+        }
+
+        function handleWrongClick(pair, index) {
+            loseLife();
+            playWrongSound();
+            createParticles(pair.wrongItem.x + pair.wrongItem.width/2, pair.wrongItem.y, '#f87171', 'X'); // Red X
+            wordPairsOnScreen.splice(index, 1);
+            
+            // Visual feedback for wrong choice (shake screen)
+            canvas.style.transform = 'translateX(5px)';
+            setTimeout(() => canvas.style.transform = 'translateX(-5px)', 50);
+            setTimeout(() => canvas.style.transform = 'translateX(5px)', 100);
+            setTimeout(() => canvas.style.transform = 'translateX(0)', 150);
+        }
+
+        function loseLife() {
+            lives--;
+            updateLivesDisplay();
+            if (lives <= 0) {
+                endGame();
+            }
+        }
+
+        function updateLivesDisplay() {
+            livesContainer.innerHTML = '';
+            for (let i = 0; i < lives; i++) {
+                livesContainer.innerHTML += '<span class="heart">❤️</span>';
+            }
+            for(let i = 0; i < 5 - lives; i++){
+                livesContainer.innerHTML += '<span class="heart" style="filter: grayscale(100%); opacity: 0.5;">❤️</span>';
+            }
+        }
+
+        function spawnWordPair() {
+            // Pick a random dictionary entry
+            const entry = wordDictionary[Math.floor(Math.random() * wordDictionary.length)];
+            
+            // Calculate font size based on screen width for responsiveness
+            const fontSize = Math.max(24, Math.min(36, width * 0.05));
+            ctx.font = `bold ${fontSize}px 'Microsoft JhengHei', sans-serif`;
+            
+            // Measure text width to center it on hitboxes
+            const cw = ctx.measureText(entry.correct).width;
+            const ww = ctx.measureText(entry.wrong).width;
+
+            // --- 隨機且不重疊的水平位置計算 ---
+            const paddingX = 15; // 對應繪製氣泡時的左右內邊距
+            const totalW_correct = cw + paddingX * 2;
+            const totalW_wrong = ww + paddingX * 2;
+            
+            const minGap = 30; // 兩個氣泡之間的最短安全距離
+            const edgeGap = 20; // 距離螢幕左右邊緣的最短距離
+            
+            // 隨機決定正確的字在左邊還是右邊
+            const isCorrectLeft = Math.random() > 0.5;
+            
+            const leftTotalW = isCorrectLeft ? totalW_correct : totalW_wrong;
+            const rightTotalW = isCorrectLeft ? totalW_wrong : totalW_correct;
+            
+            // 計算左邊詞語可以放置的最大 X 起點
+            const maxLeftStart = width - edgeGap - rightTotalW - minGap - leftTotalW;
+            const validMaxLeft = Math.max(edgeGap, maxLeftStart);
+            
+            // 隨機決定左邊詞語的起點
+            const leftStart = edgeGap + Math.random() * (validMaxLeft - edgeGap);
+            
+            // 計算右邊詞語可以放置的範圍 (必須在左邊詞語 + 安全距離 的右側)
+            const minRightStart = leftStart + leftTotalW + minGap;
+            const maxRightStart = width - edgeGap - rightTotalW;
+            const validMaxRight = Math.max(minRightStart, maxRightStart);
+            
+            // 隨機決定右邊詞語的起點
+            const rightStart = minRightStart + Math.random() * (validMaxRight - minRightStart);
+            
+            // 將氣泡的起點轉換為實際文字繪製的 X 座標
+            const leftTextX = leftStart + paddingX;
+            const rightTextX = rightStart + paddingX;
+
+            const correctItem = {
+                text: entry.correct,
+                x: isCorrectLeft ? leftTextX : rightTextX,
+                y: -50,
+                width: cw,
+                height: fontSize,
+                color: '#1e293b' // Dark slate
+            };
+
+            const wrongItem = {
+                text: entry.wrong,
+                x: isCorrectLeft ? rightTextX : leftTextX,
+                y: -50,
+                width: ww,
+                height: fontSize,
+                color: '#1e293b'
+            };
+
+            // 移除隨機速度變化，統一使用當前關卡速度，避免不同波的字詞垂直重疊追撞
+            const currentSpeed = baseSpeed * speedMultiplier;
+
+            wordPairsOnScreen.push({
+                correctItem,
+                wrongItem,
+                speed: currentSpeed
+            });
+        }
+
+        function createParticles(x, y, color, symbol) {
+            for (let i = 0; i < 5; i++) {
+                particles.push({
+                    x: x + (Math.random() - 0.5) * 20,
+                    y: y + (Math.random() - 0.5) * 20,
+                    vx: (Math.random() - 0.5) * 5,
+                    vy: (Math.random() - 0.5) * 5 - 2,
+                    life: 1,
+                    color: color,
+                    symbol: symbol
+                });
+            }
+        }
+
+        function updateAndDrawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.02;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    ctx.save();
+                    ctx.globalAlpha = p.life;
+                    ctx.fillStyle = p.color;
+                    ctx.font = `bold 30px 'Microsoft JhengHei', sans-serif`;
+                    ctx.fillText(p.symbol, p.x, p.y);
+                    ctx.restore();
+                }
+            }
+        }
+
+        function gameLoop(timestamp) {
+            if (!gameRunning) return;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+
+            // Draw background subtle pattern or gradient if desired (currently plain)
+            // ctx.fillStyle = '#f0f4f8';
+            // ctx.fillRect(0, 0, width, height);
+
+            // Spawn logic
+            if (timestamp - lastSpawnTime > spawnRate) {
+                spawnWordPair();
+                lastSpawnTime = timestamp;
+            }
+
+            // Update and draw words
+            for (let i = wordPairsOnScreen.length - 1; i >= 0; i--) {
+                const pair = wordPairsOnScreen[i];
+                
+                // Move down
+                pair.correctItem.y += pair.speed;
+                pair.wrongItem.y += pair.speed;
+
+                // Draw bubbles/backgrounds for words to make them clickable looking
+                drawWordBubble(pair.correctItem);
+                drawWordBubble(pair.wrongItem);
+
+                // Check if missed (went off screen)
+                if (pair.correctItem.y > height + 50) {
+                    // Missed the correct word!
+                    loseLife();
+                    playWrongSound();
+                    createParticles(pair.correctItem.x + pair.correctItem.width/2, height, '#fbbf24', '!'); // Warning yellow
+                    wordPairsOnScreen.splice(i, 1);
+                    continue;
+                }
+            }
+
+            updateAndDrawParticles();
+
+            if (gameRunning) {
+                animationId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function drawWordBubble(item) {
+            const paddingX = 15;
+            const paddingY = 10;
+            const radius = 10;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.beginPath();
+            ctx.roundRect(item.x - paddingX, item.y - item.height - paddingY + 5, item.width + paddingX*2, item.height + paddingY*2, radius);
+            ctx.fill();
+
+            ctx.fillStyle = item.color;
+            ctx.font = `bold ${item.height}px 'Microsoft JhengHei', sans-serif`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText(item.text, item.x, item.y);
+            ctx.restore();
+        }
+
+        function startGame() {
+            // 解析使用者自訂的詞庫
+            const customText = customDictInput.value.trim();
+            wordDictionary = []; // 清空現有詞庫
+            if (customText) {
+                const lines = customText.split('\n');
+                for (const line of lines) {
+                    // 支援全形或半形逗號
+                    const parts = line.split(/[,，]/);
+                    if (parts.length >= 2 && parts[0].trim() !== '' && parts[1].trim() !== '') {
+                        wordDictionary.push({ correct: parts[0].trim(), wrong: parts[1].trim() });
+                    }
+                }
+            }
+            
+            // 如果輸入格式錯誤或留白導致詞庫為空，則恢復預設詞庫
+            if (wordDictionary.length === 0) {
+                wordDictionary = [...defaultDictionary];
+                initDictionaryUI();
+            }
+
+            // Initialize Tone.js audio context on user interaction (required by browsers)
+            initAudio();
+
+            // Reset state
+            score = 0;
+            lives = 5;
+            level = 1;
+            correctCountInLevel = 0;
+            speedMultiplier = 1;
+            spawnRate = 2000;
+            wordPairsOnScreen = [];
+            particles = [];
+            scoreElement.innerText = score;
+            levelElement.innerText = level;
+            updateLivesDisplay();
+
+            // UI
+            screens.classList.add('hidden');
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            gameWinScreen.classList.add('hidden');
+            levelUpScreen.classList.add('hidden');
+            hud.classList.remove('hidden');
+
+            gameRunning = true;
+            lastSpawnTime = performance.now();
+            
+            // Small delay before first spawn
+            setTimeout(() => {
+                if(gameRunning) spawnWordPair();
+            }, 500);
+
+            cancelAnimationFrame(animationId);
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            
+            // Update UI
+            document.getElementById('finalScore').innerText = score;
+            hud.classList.add('hidden');
+            screens.classList.remove('hidden');
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        // Add roundRect polyfill for older browsers if needed, though most modern ones support it.
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+          CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+            if (w < 2 * r) r = w / 2;
+            if (h < 2 * r) r = h / 2;
+            this.moveTo(x + r, y);
+            this.arcTo(x + w, y, x + w, y + h, r);
+            this.arcTo(x + w, y + h, x, y + h, r);
+            this.arcTo(x, y + h, x, y, r);
+            this.arcTo(x, y, x + r, y, r);
+            return this;
+          }
+        }
+
+    </script>
+</body>
+</html>
